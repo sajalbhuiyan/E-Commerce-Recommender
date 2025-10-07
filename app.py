@@ -1036,34 +1036,14 @@ with st.sidebar:
     st.markdown('---')
     st.image("https://via.placeholder.com/200x60/667eea/ffffff?text=ShopSmart+AI", use_column_width=True)
     st.markdown('---')
-    st.markdown('### 🔐 Account')
-    if not st.session_state.logged_in:
-        auth_tab = st.radio('Action', ['Login', 'Register'])
-        if auth_tab == 'Register':
-            new_user = st.text_input('Choose a username')
-            new_pw = st.text_input('Choose a password', type='password')
-            if st.button('Create account'):
-                ok = register_user(new_user, new_pw)
-                if ok:
-                    st.success('Account created — please login')
-                else:
-                    st.error('Registration failed (user may already exist or invalid input)')
-        else:
-            user = st.text_input('Username')
-            pw = st.text_input('Password', type='password')
-            if st.button('Login'):
-                if authenticate_user(user, pw):
-                    st.session_state.logged_in = True
-                    st.session_state.username = user
-                    st.experimental_rerun()
-                else:
-                    st.error('Login failed — check credentials')
-    else:
-        st.markdown(f"**Signed in as:** {st.session_state.username}")
+    if st.session_state.get('logged_in'):
+        st.markdown(f"**Signed in as:** {st.session_state.get('username')}")
         if st.button('Logout'):
             st.session_state.logged_in = False
             st.session_state.username = None
             st.experimental_rerun()
+    else:
+        st.markdown('Please use the login / register page to sign in.')
 
     st.markdown('---')
     st.markdown('### 📊 Profile')
@@ -1092,8 +1072,55 @@ with st.sidebar.expander("🧰 Data Debug (columns & sample)"):
 # Initialize enhanced product data
 enhanced_products = enhance_product_data()
 
-# Authentication gate: require login before showing rest of the app
+# Authentication gate: show a full-page login / register form when not logged in
 if not st.session_state.get('logged_in', False):
-    st.markdown('# Welcome to ShopSmart AI')
-    st.markdown('Please register or login using the sidebar to access the recommender features.')
+    st.markdown("# Welcome to ShopSmart AI")
+    st.markdown("Please register or login below to access the recommender features.")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        tab = st.radio('Choose action', ['Login', 'Register', 'Preload Users (CSV)'])
+        if tab == 'Login':
+            with st.form('login_form'):
+                login_user = st.text_input('Username')
+                login_pw = st.text_input('Password', type='password')
+                submitted = st.form_submit_button('Login')
+                if submitted:
+                    if authenticate_user(login_user, login_pw):
+                        st.session_state.logged_in = True
+                        st.session_state.username = login_user.strip().lower()
+                        st.success('Login successful')
+                        st.experimental_rerun()
+                    else:
+                        st.error('Login failed — invalid credentials')
+
+        elif tab == 'Register':
+            with st.form('register_form'):
+                reg_user = st.text_input('Choose a username')
+                reg_pw = st.text_input('Choose a password', type='password')
+                submitted = st.form_submit_button('Create account')
+                if submitted:
+                    ok = register_user(reg_user, reg_pw)
+                    if ok:
+                        st.success('Account created — please login')
+                    else:
+                        st.error('Registration failed; user may already exist or input invalid')
+
+        else:  # Preload Users (CSV)
+            st.markdown('Upload a CSV with columns: username,salt_hex,hash_hex to seed the user store.')
+            csv_file = st.file_uploader('Upload users CSV', type=['csv'])
+            if csv_file is not None:
+                try:
+                    from auth import preload_users_from_file
+                    tmp = Path('temp_users_upload.csv')
+                    with tmp.open('wb') as f:
+                        f.write(csv_file.getbuffer())
+                    added = preload_users_from_file(tmp)
+                    tmp.unlink(missing_ok=True)
+                    if added:
+                        st.success(f'Loaded {added} users into store. You can now login.')
+                    else:
+                        st.error('Failed to load users from CSV (check columns and hex values).')
+                except Exception as e:
+                    st.error(f'Upload failed: {e}')
+
     st.stop()
