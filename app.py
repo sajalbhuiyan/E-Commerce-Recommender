@@ -16,6 +16,7 @@ from plotly.subplots import make_subplots
 import re
 from recommender_utils import synthesize_title
 from pathlib import Path
+from auth import register_user, authenticate_user
 
 # Page configuration
 st.set_page_config(
@@ -205,7 +206,14 @@ if 'user_id' not in st.session_state:
 if 'orders' not in st.session_state:
     st.session_state.orders = []
 if 'show_images' not in st.session_state:
-    st.session_state.show_images = True
+    # images disabled for this deployment — show names/details only
+    st.session_state.show_images = False
+
+# Authentication state
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'username' not in st.session_state:
+    st.session_state.username = None
 
 # Initialize artifacts
 try:
@@ -247,106 +255,8 @@ def enhance_product_data():
 
 def get_product_image(prod):
     """Enhanced image handling with better fallbacks"""
-    import base64
-    import io
-    try:
-        import requests
-    except Exception:
-        requests = None
-
-    img = None
-    image_cols = ['image_url', 'image', 'img', 'image_link', 'thumbnail', 'imageURL', 'product_image']
-    
-    for col in image_cols:
-        if col in prod.index:
-            img = prod.get(col)
-            if img and not pd.isna(img):
-                break
-    
-    # Handle list/tuple images
-    if img is not None:
-        try:
-            if isinstance(img, (list, tuple)):
-                img = img[0] if len(img) > 0 else None
-            elif hasattr(img, 'shape') and len(img.shape) > 0:
-                img = img[0] if img.size > 0 else None
-        except Exception:
-            pass
-    
-    # Better placeholder based on product category
-    if img is None or (isinstance(img, str) and img.strip() == ''):
-        category = prod.get('category', 'product')
-        category_colors = {
-            'electronics': '4CAF50', 'clothing': '2196F3', 'home': 'FF9800', 
-            'books': '795548', 'beauty': 'E91E63', 'sports': 'FF5722'
-        }
-        color = category_colors.get(str(category).lower(), '667eea')
-        img = f'https://via.placeholder.com/400x400/{color}/ffffff?text={category.title().replace(" ", "+")}'
-        # If we have a product name/brand, try to get a relevant image from Unsplash
-        try:
-            from urllib.parse import quote_plus
-            q_parts = []
-            name = prod.get('name') or prod.get('title')
-            if name and isinstance(name, str):
-                q_parts.append(name)
-            brand = prod.get('brand')
-            if brand and not pd.isna(brand):
-                q_parts.append(str(brand))
-            if category and not pd.isna(category):
-                q_parts.append(str(category))
-            if q_parts:
-                query = quote_plus(' '.join(q_parts))
-                # Unsplash source with query returns a relevant image
-                img = f'https://source.unsplash.com/400x400/?{query}'
-        except Exception:
-            pass
-
-    # If img is a remote URL, try to fetch and cache a base64 data URI in session state
-    try:
-        if isinstance(img, str) and img.startswith('http'):
-            cache = st.session_state.get('_image_cache', {})
-            if img in cache:
-                return cache[img]
-
-            # Try to fetch image bytes
-            img_bytes = None
-            if requests is not None:
-                try:
-                    resp = requests.get(img, timeout=6)
-                    resp.raise_for_status()
-                    img_bytes = resp.content
-                except Exception:
-                    img_bytes = None
-            else:
-                # fallback to urllib
-                try:
-                    from urllib.request import urlopen
-                    with urlopen(img, timeout=6) as r:
-                        img_bytes = r.read()
-                except Exception:
-                    img_bytes = None
-
-            if img_bytes:
-                try:
-                    b64 = base64.b64encode(img_bytes).decode('ascii')
-                    # Try to detect mime type from URL extension
-                    mime = 'image/jpeg'
-                    if img.lower().endswith('.png'):
-                        mime = 'image/png'
-                    data_uri = f'data:{mime};base64,{b64}'
-                    cache[img] = data_uri
-                    st.session_state['_image_cache'] = cache
-                    return data_uri
-                except Exception:
-                    pass
-
-            # If fetching failed, return the original URL (Streamlit may still load it)
-            return img
-    except Exception:
-        # any error, fall back to returning whatever we have
-        return img
-    
-    return img
+    # Images are disabled in this deployment — always return None
+    return None
 
 def create_product_card(prod, pid, show_badge=False, badge_text="Recommended", context="general"):
     """Create a professional product card with enhanced features"""
@@ -1122,148 +1032,45 @@ with st.sidebar.expander("📊 System Status"):
     st.write(f"• Session started: {datetime.now().strftime('%H:%M:%S')}")
 
 # Prefetch toggle: load first N images into session cache as data URIs
-def prefetch_images(n=12):
-    import base64
-    try:
-        import requests
-    except Exception:
-        requests = None
-    cache = st.session_state.get('_image_cache', {})
-    if rc.products_info is None or 'image_url' not in rc.products_info.columns:
-        return 0
-    count = 0
-    for _, row in rc.products_info.head(n).iterrows():
-        url = row.get('image_url')
-        if not url or not isinstance(url, str) or not url.startswith('http'):
-            continue
-        if url in cache:
-            count += 1
-            continue
-        data = None
-        if requests is not None:
-            try:
-                r = requests.get(url, timeout=6)
-                if r.status_code == 200 and r.content:
-                    data = r.content
-            except Exception:
-                data = None
-        if data is None:
-            try:
-                from urllib.request import urlopen
-                with urlopen(url, timeout=6) as r:
-                    data = r.read()
-            except Exception:
-                data = None
-        if data:
-            try:
-                b64 = base64.b64encode(data).decode('ascii')
-                mime = 'image/jpeg'
-                if url.lower().endswith('.png'):
-                    mime = 'image/png'
-                cache[url] = f'data:{mime};base64,{b64}'
-                count += 1
-            except Exception:
-                pass
-    st.session_state['_image_cache'] = cache
-    return count
-
 with st.sidebar:
     st.markdown('---')
-    prefetch_enable = st.checkbox('Prefetch images (embed as data URIs)', value=False)
-    if prefetch_enable:
-        n = st.number_input('Prefetch first N images', min_value=4, max_value=100, value=12, step=4)
-        with st.spinner('Prefetching images...'):
-            got = prefetch_images(n)
-            st.success(f'Prefetched {got} images into session cache')
-    # Allow user to upload a CSV mapping product_id -> image_url (useful to supply Amazon image URLs)
+    st.image("https://via.placeholder.com/200x60/667eea/ffffff?text=ShopSmart+AI", use_column_width=True)
     st.markdown('---')
-    st.markdown('Upload CSV with columns: product_id,image_url')
-    csv_file = st.file_uploader('Image mapping CSV', type=['csv'])
-    if csv_file is not None:
-        try:
-            import pandas as _pd
-            mapping = _pd.read_csv(csv_file)
-            if 'product_id' in mapping.columns and 'image_url' in mapping.columns:
-                # merge into products_info and persist
-                if rc.products_info is None:
-                    st.error('No products_info loaded yet; cannot apply mapping')
+    st.markdown('### 🔐 Account')
+    if not st.session_state.logged_in:
+        auth_tab = st.radio('Action', ['Login', 'Register'])
+        if auth_tab == 'Register':
+            new_user = st.text_input('Choose a username')
+            new_pw = st.text_input('Choose a password', type='password')
+            if st.button('Create account'):
+                ok = register_user(new_user, new_pw)
+                if ok:
+                    st.success('Account created — please login')
                 else:
-                    df_merge = rc.products_info.merge(mapping[['product_id','image_url']], on='product_id', how='left', suffixes=('','_new'))
-                    # prefer new urls when present
-                    df_merge['image_url'] = df_merge['image_url_new'].combine_first(df_merge.get('image_url'))
-                    df_merge = df_merge.drop(columns=[c for c in df_merge.columns if c.endswith('_new')])
-                    import joblib as _joblib
-                    _joblib.dump(df_merge, Path(__file__).resolve().parent / 'products.pkl')
-                    # reload into module state
-                    rc.products_info = df_merge
-                    st.success('Applied image mapping and updated products.pkl')
-            else:
-                st.error('CSV must contain product_id and image_url columns')
-        except Exception as e:
-            st.error(f'Failed to apply mapping: {e}')
+                    st.error('Registration failed (user may already exist or invalid input)')
+        else:
+            user = st.text_input('Username')
+            pw = st.text_input('Password', type='password')
+            if st.button('Login'):
+                if authenticate_user(user, pw):
+                    st.session_state.logged_in = True
+                    st.session_state.username = user
+                    st.experimental_rerun()
+                else:
+                    st.error('Login failed — check credentials')
+    else:
+        st.markdown(f"**Signed in as:** {st.session_state.username}")
+        if st.button('Logout'):
+            st.session_state.logged_in = False
+            st.session_state.username = None
+            st.experimental_rerun()
 
     st.markdown('---')
-    st.markdown('Amazon Product Advertising API (optional)')
-    pa_access = st.text_input('PA-API Access Key', type='password')
-    pa_secret = st.text_input('PA-API Secret Key', type='password')
-    pa_tag = st.text_input('PA-API Partner Tag (Associate Tag)')
-    pa_region = st.selectbox('PA-API Region', ['us-east-1', 'eu-west-1', 'us-west-2'], index=0)
-    pa_host = st.text_input('PA-API Host', value='webservices.amazon.com')
-    if st.button('Fetch latest products from Amazon by keyword'):
-        kw = st.text_input('Search keyword', value='headphones')
-        if not (pa_access and pa_secret and pa_tag):
-            st.error('Please provide Access Key, Secret Key and Partner Tag')
-        else:
-            try:
-                import amazon_paapi as _pa
-                items = _pa.search_items(kw, pa_access, pa_secret, pa_tag, region=pa_region, host=pa_host, page=1, item_count=10)
-                # map items into products_info rows
-                new_rows = []
-                for it in items:
-                    asin = it.get('ASIN') or it.get('asin')
-                    title = None
-                    img = None
-                    brand = None
-                    price = None
-                    try:
-                        title = it.get('ItemInfo', {}).get('Title', {}).get('DisplayValue')
-                    except Exception:
-                        title = None
-                    try:
-                        img = it.get('Images', {}).get('Primary', {}).get('Medium', {}).get('URL')
-                    except Exception:
-                        img = None
-                    try:
-                        bl = it.get('ItemInfo', {}).get('ByLineInfo', {})
-                        brand = bl.get('Brand', {}).get('DisplayValue')
-                    except Exception:
-                        brand = None
-                    try:
-                        offers = it.get('Offers', {}).get('Listings', [])
-                        if offers:
-                            price = offers[0].get('Price', {}).get('Amount')
-                    except Exception:
-                        price = None
-                    if asin:
-                        new_rows.append({'product_id': asin, 'name': title or asin, 'brand': brand or '', 'price': price, 'image_url': img})
-                if new_rows:
-                    import pandas as _pd, joblib as _joblib
-                    newdf = _pd.DataFrame(new_rows)
-                    # merge with existing products_info
-                    if rc.products_info is None:
-                        rc.products_info = newdf
-                    else:
-                        rc.products_info = _pd.concat([rc.products_info, newdf], ignore_index=True).drop_duplicates(subset=['product_id']).reset_index(drop=True)
-                    _joblib.dump(rc.products_info, Path(__file__).resolve().parent / 'products.pkl')
-                    st.success(f'Fetched and merged {len(new_rows)} items from Amazon')
-                    # prefetch their images
-                    prefetch_urls([r.get('image_url') for r in new_rows if r.get('image_url')])
-            except Exception as e:
-                st.error(f'PA-API fetch failed: {e}')
-    # Image display toggle
+    st.markdown('### 📊 Profile')
+    st.metric('Cart Items', sum(st.session_state.cart.values()))
+    st.metric('Wishlist', len(st.session_state.wishlist))
     st.markdown('---')
-    show_images = st.checkbox('Show product images', value=st.session_state.get('show_images', True))
-    st.session_state.show_images = show_images
+    st.markdown('Product images are disabled in this deployment. The app displays product names and details only.')
 
 # Debug / data inspection panel to help diagnose missing images or labels
 with st.sidebar.expander("🧰 Data Debug (columns & sample)"):
@@ -1277,30 +1084,16 @@ with st.sidebar.expander("🧰 Data Debug (columns & sample)"):
             st.write("**Sample (first 5 rows):**")
             st.dataframe(rc.products_info.head(5), use_container_width=True)
 
-            def detect_image_column(df):
-                candidates = ['image_url', 'image', 'img', 'image_link', 'thumbnail', 'imageURL', 'product_image']
-                for c in candidates:
-                    if c in df.columns:
-                        return c
-                # fallback: any column containing 'image' or 'img'
-                for c in df.columns:
-                    if 'image' in c.lower() or 'img' in c.lower():
-                        return c
-                return None
-
-            img_col = detect_image_column(rc.products_info)
-            st.write(f"Detected image column: {img_col or 'None'}")
-            if img_col:
-                try:
-                    sample_imgs = rc.products_info[img_col].head(8).tolist()
-                    st.write("Sample image values:")
-                    for i, v in enumerate(sample_imgs):
-                        st.write(f"{i+1}. {v}")
-                except Exception:
-                    st.write("Could not read sample image values.")
+            # (Image column detection and sample image inspection removed by request)
         except Exception as e:
             st.write(f"Error inspecting products_info: {e}")
 
 # Enhanced the recommender core with additional functionality
 # Initialize enhanced product data
 enhanced_products = enhance_product_data()
+
+# Authentication gate: require login before showing rest of the app
+if not st.session_state.get('logged_in', False):
+    st.markdown('# Welcome to ShopSmart AI')
+    st.markdown('Please register or login using the sidebar to access the recommender features.')
+    st.stop()
