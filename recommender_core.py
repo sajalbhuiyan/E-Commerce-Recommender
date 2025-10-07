@@ -7,6 +7,7 @@ from typing import List, Optional
 import difflib
 from functools import lru_cache
 import json
+import os
 
 # Optional Redis caching support. If Redis is not available, cached functions use lru_cache.
 try:
@@ -361,6 +362,67 @@ def fetch_remote_artifact(url: str, filename: str, checksum: str = None):
         return True
     except Exception:
         return False
+
+
+def _auto_fetch_artifacts_from_env():
+    """If environment variables or Streamlit secrets provide artifact URLs, download missing files.
+
+    Recognized env vars / secrets:
+      - SVD_MODEL_URL
+      - RF_MODEL_URL
+      - ARTIFACT_SOURCES (JSON mapping filename->url)
+    """
+    # prefer explicit env vars
+    urls = {}
+    svd = os.environ.get('SVD_MODEL_URL')
+    rf = os.environ.get('RF_MODEL_URL')
+    if svd:
+        urls['svd_model.pkl'] = svd
+    if rf:
+        urls['rf_recommender.pkl'] = rf
+
+    # ARTIFACT_SOURCES can be a JSON mapping
+    art_src = os.environ.get('ARTIFACT_SOURCES')
+    if art_src:
+        try:
+            mapping = json.loads(art_src)
+            for k, v in mapping.items():
+                urls[k] = v
+        except Exception:
+            pass
+
+    # try streamlit secrets if available
+    try:
+        import streamlit as _st
+        secrets = _st.secrets
+        if 'SVD_MODEL_URL' in secrets and 'svd_model.pkl' not in urls:
+            urls['svd_model.pkl'] = secrets['SVD_MODEL_URL']
+        if 'RF_MODEL_URL' in secrets and 'rf_recommender.pkl' not in urls:
+            urls['rf_recommender.pkl'] = secrets['RF_MODEL_URL']
+        if 'ARTIFACT_SOURCES' in secrets:
+            try:
+                mapping = json.loads(secrets['ARTIFACT_SOURCES'])
+                for k, v in mapping.items():
+                    urls[k] = v
+            except Exception:
+                pass
+    except Exception:
+        # streamlit not available or no secrets
+        pass
+
+    # Download if local file missing
+    for fname, url in urls.items():
+        target = ROOT / fname
+        if not target.exists():
+            try:
+                fetch_remote_artifact(url, fname)
+            except Exception:
+                # ignore network errors at import time
+                pass
+
+
+# Fetch artifacts on import when configured via env var or secrets
+_auto_fetch_artifacts_from_env()
 
 
 def validate_and_load_model(path: str):
