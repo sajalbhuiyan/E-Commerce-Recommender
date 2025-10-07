@@ -5,3 +5,6 @@ scikit-learn
 joblib
 redis
 requests
+# Pin Pillow to avoid a build-time packaging bug seen for Pillow 9.5.0 on some Python 3.13 environments
+# Streamlit depends on pillow (<10,>=7.1.0) so this keeps compatibility while avoiding the broken release.
+Pillow<9.5.0
