@@ -1,0 +1,4 @@
+# Development / optional dependencies
+pytest
+skl2onnx
+onnxruntime

@@ -3,8 +3,5 @@ pandas
 numpy
 scikit-learn
 joblib
-pytest
 redis
 requests
-skl2onnx
-onnxruntime
