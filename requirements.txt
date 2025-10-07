@@ -1,0 +1,10 @@
+streamlit==1.26.0
+pandas
+numpy
+scikit-learn
+joblib
+pytest
+redis
+requests
+skl2onnx
+onnxruntime
