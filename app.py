@@ -12,12 +12,22 @@ from recommender_core import (
     create_demo_data,
     products_info,
     item_emb,
+    fetch_artifacts_from_env,
 )
 import pandas as pd
 import math
 
 
 st.set_page_config(page_title="E-Commerce Recommender", layout="wide")
+
+# Try to fetch configured artifacts (S3 URLs or env) now that page config
+# has been set and Streamlit has been initialized. This avoids calling
+# Streamlit functions during module import which would break set_page_config.
+try:
+    fetch_artifacts_from_env()
+except Exception:
+    # keep app resilient — artifact fetch may fail in offline dev
+    pass
 
 # Sidebar / settings
 st.sidebar.title("E-Commerce Recommender")
@@ -66,7 +76,30 @@ with tab1:
                         pr = products_info[products_info['product_id'] == pid]
                         if not pr.empty:
                             prod = pr.iloc[0]
-                            st.image(prod.get('image_url', None) or '', width=160)
+                            # Robust image lookup: support several common column names and list-like values
+                            img = None
+                            for col in ('image_url', 'image', 'img', 'image_link', 'thumbnail'):
+                                if col in prod.index:
+                                    img = prod.get(col)
+                                    break
+                            # If image is an array or list, pick the first element
+                            try:
+                                import numpy as _np
+                                if isinstance(img, (list, tuple, _np.ndarray)):
+                                    img = img[0] if len(img) > 0 else None
+                            except Exception:
+                                if isinstance(img, (list, tuple)):
+                                    img = img[0] if len(img) > 0 else None
+
+                            # Fallback placeholder for missing images
+                            if img is None or (isinstance(img, str) and img.strip() == '') or pd.isna(img):
+                                img = 'https://via.placeholder.com/160?text=No+Image'
+                            try:
+                                st.image(img, width=160)
+                            except Exception:
+                                # If image URL fails for any reason, show placeholder
+                                st.image('https://via.placeholder.com/160?text=No+Image', width=160)
+
                             title = prod.get('name') or prod.get('product_id') or pid
                             st.markdown(f"**{title}**")
                             if 'brand' in prod.index:
@@ -150,7 +183,26 @@ with tab2:
                     pr = products_info[products_info['product_id'] == pid]
                     if not pr.empty:
                         prod = pr.iloc[0]
-                        st.image(prod.get('image_url', None) or '', width=160)
+                        # Robust image handling as above
+                        img = None
+                        for col in ('image_url', 'image', 'img', 'image_link', 'thumbnail'):
+                            if col in prod.index:
+                                img = prod.get(col)
+                                break
+                        try:
+                            import numpy as _np
+                            if isinstance(img, (list, tuple, _np.ndarray)):
+                                img = img[0] if len(img) > 0 else None
+                        except Exception:
+                            if isinstance(img, (list, tuple)):
+                                img = img[0] if len(img) > 0 else None
+                        if img is None or (isinstance(img, str) and img.strip() == '') or pd.isna(img):
+                            img = 'https://via.placeholder.com/160?text=No+Image'
+                        try:
+                            st.image(img, width=160)
+                        except Exception:
+                            st.image('https://via.placeholder.com/160?text=No+Image', width=160)
+
                         st.markdown(f"**{prod.get('name') or pid}**")
                         if 'price' in prod.index:
                             st.write(f"**${prod['price']}**")

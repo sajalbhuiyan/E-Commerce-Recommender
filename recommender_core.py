@@ -364,7 +364,7 @@ def fetch_remote_artifact(url: str, filename: str, checksum: str = None):
         return False
 
 
-def _auto_fetch_artifacts_from_env():
+def fetch_artifacts_from_env():
     """If environment variables or Streamlit secrets provide artifact URLs, download missing files.
 
     Recognized env vars / secrets:
@@ -421,8 +421,9 @@ def _auto_fetch_artifacts_from_env():
                 pass
 
 
-# Fetch artifacts on import when configured via env var or secrets
-_auto_fetch_artifacts_from_env()
+# Note: fetching artifacts from env/secrets is opt-in. Call `fetch_artifacts_from_env()`
+# from your Streamlit app after `st.set_page_config(...)` to avoid Streamlit being
+# initialized during module import (which would break set_page_config()).
 
 
 def validate_and_load_model(path: str):
